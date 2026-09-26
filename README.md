@@ -45,7 +45,7 @@ Configure this **repository secret** under **Settings -> Secrets and variables -
 
 ## Deployment
 
-A same-repository pull request deploys a Vercel **preview** for validation. A push to `main` (or a manual `workflow_dispatch`) deploys to the existing Vercel project's **production** target.
+A same-repository pull request deploys a Vercel **preview** to prove that the configuration can deploy cleanly without modifying the public production alias. A push to `main` (or a manual `workflow_dispatch`) deploys to the existing Vercel project's **production** target and then smoke-tests `https://c00l-g-mes.vercel.app`.
 
 The workflow:
 
@@ -53,13 +53,14 @@ The workflow:
 2. requires `UPSTREAM_ORIGIN` to be an HTTPS origin without credentials, path, query, or fragment;
 3. renders `vercel.json` from `vercel.template.json`;
 4. maps `VERCEL_TEAM_ID` to the Vercel CLI's expected `VERCEL_ORG_ID` internally;
-5. deploys the rendered configuration to the existing Vercel project using a pinned Vercel CLI.
+5. deploys the rendered configuration to the existing Vercel project using a pinned Vercel CLI;
+6. after production deployments, smoke-tests the public `c00l-g-mes.vercel.app` alias for root/nested routing, query handling, an application asset, the no-index header, and 404 behavior.
 
 The legacy Vercel project can therefore be reused without making Vercel the source of upstream configuration. The generated Vercel config also selects the `Other` framework preset and disables build/install commands so legacy Vite build settings on the reused project do not leak into this front-door deployment. Automatic Vercel Git deployment is not required for this repository.
 
 ## Validation
 
-After deployment, verify:
+Production deployment automation verifies:
 
 - `/` and representative nested routes render through the Vercel hostname;
 - browser refreshes on nested routes still work;
