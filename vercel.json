@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "${UPSTREAM_ORIGIN}/$1",
+      "headers": {
+        "X-Robots-Tag": "noindex, nofollow"
+      },
+      "env": ["UPSTREAM_ORIGIN"]
+    }
+  ]
+}
