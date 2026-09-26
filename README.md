@@ -32,7 +32,7 @@ Configure these **repository variables** under **Settings -> Secrets and variabl
 | Name | Purpose | Example |
 | --- | --- | --- |
 | `UPSTREAM_ORIGIN` | HTTPS origin to proxy | `https://example.com` |
-| `VERCEL_ORG_ID` | Owner/team ID for the existing Vercel project | `team_...` or Vercel account ID |
+| `VERCEL_TEAM_ID` | Team/account ID that owns the existing Vercel project | `team_...` |
 | `VERCEL_PROJECT_ID` | Existing Vercel project ID | `prj_...` |
 
 Configure this **repository secret** under **Settings -> Secrets and variables -> Actions -> Secrets**:
@@ -45,14 +45,15 @@ Configure this **repository secret** under **Settings -> Secrets and variables -
 
 ## Deployment
 
-A push to `main` (or a manual `workflow_dispatch`) deploys to the existing Vercel project's production target.
+A same-repository pull request deploys a Vercel **preview** for validation. A push to `main` (or a manual `workflow_dispatch`) deploys to the existing Vercel project's **production** target.
 
 The workflow:
 
 1. validates the required GitHub variables;
 2. requires `UPSTREAM_ORIGIN` to be an HTTPS origin without credentials, path, query, or fragment;
 3. renders `vercel.json` from `vercel.template.json`;
-4. deploys the rendered configuration to the existing Vercel project using a pinned Vercel CLI.
+4. maps `VERCEL_TEAM_ID` to the Vercel CLI's expected `VERCEL_ORG_ID` internally;
+5. deploys the rendered configuration to the existing Vercel project using a pinned Vercel CLI.
 
 The legacy Vercel project can therefore be reused without making Vercel the source of upstream configuration. Automatic Vercel Git deployment is not required for this repository.
 
