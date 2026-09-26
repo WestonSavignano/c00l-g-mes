@@ -4,16 +4,18 @@ A minimal, configurable Vercel front door for validating alternate hosting and n
 
 ## How it works
 
-Every request is reverse-proxied by Vercel to a single deployment-time upstream origin while the Vercel hostname remains in the browser:
+Every request is reverse-proxied by the configured Vercel project while the Vercel hostname remains in the browser:
 
 ```text
 browser
   -> <vercel-project>.vercel.app/<path>
   -> Vercel external route
-  -> UPSTREAM_ORIGIN/<path>
+  -> configured upstream origin/<path>
 ```
 
-The upstream is controlled only by the Vercel project environment variable `UPSTREAM_ORIGIN`. It is not accepted from request data, so this repository must not be extended into an arbitrary/open proxy.
+The upstream is controlled by the GitHub repository variable `UPSTREAM_ORIGIN`. GitHub Actions renders `vercel.json` immediately before deployment, so the upstream URL does not need to be duplicated in Vercel project environment variables.
+
+The destination is fixed at deployment time and cannot be supplied by a request, so this repository must not be extended into an arbitrary/open proxy.
 
 The alternate surface emits:
 
@@ -23,19 +25,36 @@ X-Robots-Tag: noindex, nofollow
 
 so it is not intended to become an indexable or canonical product host.
 
-## Vercel setup
+## GitHub configuration
 
-1. Connect this repository to the intended Vercel project.
-2. In **Project Settings -> Environment Variables**, add `UPSTREAM_ORIGIN` for the environments that should proxy traffic.
-3. Set it to an absolute HTTPS origin with no trailing slash, for example:
+Configure these **repository variables** under **Settings -> Secrets and variables -> Actions -> Variables**:
 
-   ```text
-   https://example.com
-   ```
+| Name | Purpose | Example |
+| --- | --- | --- |
+| `UPSTREAM_ORIGIN` | HTTPS origin to proxy | `https://example.com` |
+| `VERCEL_ORG_ID` | Owner/team ID for the existing Vercel project | `team_...` or Vercel account ID |
+| `VERCEL_PROJECT_ID` | Existing Vercel project ID | `prj_...` |
 
-4. Redeploy after changing the environment variable.
+Configure this **repository secret** under **Settings -> Secrets and variables -> Actions -> Secrets**:
 
-No application source, credentials, or upstream-specific configuration should be committed here.
+| Name | Purpose |
+| --- | --- |
+| `VERCEL_TOKEN` | Vercel access token used only by GitHub Actions to deploy |
+
+`UPSTREAM_ORIGIN` is configuration, not sensitive data, so it should normally be a repository variable rather than a secret.
+
+## Deployment
+
+A push to `main` (or a manual `workflow_dispatch`) deploys to the existing Vercel project's production target.
+
+The workflow:
+
+1. validates the required GitHub variables;
+2. requires `UPSTREAM_ORIGIN` to be an HTTPS origin without credentials, path, query, or fragment;
+3. renders `vercel.json` from `vercel.template.json`;
+4. deploys the rendered configuration to the existing Vercel project using a pinned Vercel CLI.
+
+The legacy Vercel project can therefore be reused without making Vercel the source of upstream configuration. Automatic Vercel Git deployment is not required for this repository.
 
 ## Validation
 
