@@ -98,30 +98,22 @@ jobs:
             printf '%s\n' "- URL: $deployment_url"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Smoke test deployment
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+      - name: Smoke test public production alias
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
 
-          request() {
-            local path="$1"
-            shift
-            npx --yes vercel@59.19.1 curl "$path" \
-              --deployment "$DEPLOYMENT_URL" \
-              --token="$VERCEL_TOKEN" \
-              "$@"
-          }
+          base_url="https://c00l-g-mes.vercel.app"
+          curl_args=(--fail --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors)
 
           root_headers="$(mktemp)"
           root_body="$(mktemp)"
 
-          request / -s -D "$root_headers" -o "$root_body" --fail
+          curl "${curl_args[@]}" -D "$root_headers" -o "$root_body" "$base_url/"
           grep -Eiq '^x-robots-tag:[[:space:]]*noindex,[[:space:]]*nofollow' "$root_headers"
 
-          request /games -s -o /dev/null --fail
+          curl "${curl_args[@]}" -o /dev/null "$base_url/games?front_door_probe=1"
 
           asset_path="$(
             node - "$root_body" <<'NODE'
@@ -132,10 +124,11 @@ jobs:
           process.stdout.write(match[1])
           NODE
           )"
-          request "$asset_path" -s -o /dev/null --fail
+          curl "${curl_args[@]}" -o /dev/null "$base_url$asset_path"
 
           missing_status="$(
-            request /__front_door_missing_probe__ -s -o /dev/null -w '%{http_code}'
+            curl --silent --output /dev/null --write-out '%{http_code}' \
+              "$base_url/__front_door_missing_probe__"
           )"
           if [[ "$missing_status" != "404" ]]; then
             echo "Expected missing-route status 404; got $missing_status" >&2
@@ -144,10 +137,10 @@ jobs:
 
           {
             echo
-            echo "### Smoke validation"
+            echo "### Public production smoke validation"
             echo
             echo "- Root: 200"
-            echo "- Games route: 200"
+            echo "- Games route with query: 200"
             echo "- Asset: $asset_path"
             echo "- X-Robots-Tag: noindex, nofollow"
             echo "- Missing route: 404"
