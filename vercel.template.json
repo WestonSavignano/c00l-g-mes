@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
+  "outputDirectory": ".",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "__UPSTREAM_ORIGIN__/$1",
+      "headers": {
+        "X-Robots-Tag": "noindex, nofollow"
+      }
+    }
+  ]
+}

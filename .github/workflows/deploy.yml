@@ -1,0 +1,147 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_ORIGIN: ${{ vars.UPSTREAM_ORIGIN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_TEAM_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Render Vercel routing config
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs')
+
+          const required = ['UPSTREAM_ORIGIN', 'VERCEL_ORG_ID', 'VERCEL_PROJECT_ID']
+          for (const name of required) {
+            if (!process.env[name]) {
+              throw new Error(`Missing required GitHub repository configuration for ${name}`)
+            }
+          }
+
+          const upstream = new URL(process.env.UPSTREAM_ORIGIN)
+          if (upstream.protocol !== 'https:') {
+            throw new Error('UPSTREAM_ORIGIN must use https')
+          }
+          if (
+            upstream.username ||
+            upstream.password ||
+            upstream.pathname !== '/' ||
+            upstream.search ||
+            upstream.hash
+          ) {
+            throw new Error('UPSTREAM_ORIGIN must be an origin only, e.g. https://example.com')
+          }
+
+          const template = fs.readFileSync('vercel.template.json', 'utf8')
+          const marker = '__UPSTREAM_ORIGIN__'
+          const matches = template.split(marker).length - 1
+          if (matches !== 1) {
+            throw new Error(`Expected exactly one ${marker} marker; found ${matches}`)
+          }
+
+          fs.writeFileSync('vercel.json', template.replace(marker, upstream.origin))
+          JSON.parse(fs.readFileSync('vercel.json', 'utf8'))
+          NODE
+
+      - name: Deploy
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${VERCEL_TOKEN:-}" ]]; then
+            echo "Missing required GitHub Actions secret: VERCEL_TOKEN" >&2
+            exit 1
+          fi
+
+          args=(deploy --yes --token="$VERCEL_TOKEN")
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            args+=(--prod)
+          fi
+
+          deployment_url="$(npx --yes vercel@59.19.1 "${args[@]}")"
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Vercel deployment"
+            echo
+            printf '%s\n' "- Event: $GITHUB_EVENT_NAME"
+            printf '%s\n' "- URL: $deployment_url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke test public production alias
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_url="https://c00l-g-mes.vercel.app"
+          curl_args=(--fail --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors)
+
+          root_headers="$(mktemp)"
+          root_body="$(mktemp)"
+
+          curl "${curl_args[@]}" -D "$root_headers" -o "$root_body" "$base_url/"
+          grep -Eiq '^x-robots-tag:[[:space:]]*noindex,[[:space:]]*nofollow' "$root_headers"
+
+          curl "${curl_args[@]}" -o /dev/null "$base_url/games?front_door_probe=1"
+
+          asset_path="$(
+            node - "$root_body" <<'NODE'
+          const fs = require('node:fs')
+          const html = fs.readFileSync(process.argv[2], 'utf8')
+          const match = html.match(/(?:src|href)=["'](\/assets\/[^"'?#]+\.(?:js|css))(?:[?#][^"']*)?["']/)
+          if (!match) process.exit(1)
+          process.stdout.write(match[1])
+          NODE
+          )"
+          curl "${curl_args[@]}" -o /dev/null "$base_url$asset_path"
+
+          missing_status="$(
+            curl --silent --output /dev/null --write-out '%{http_code}' \
+              "$base_url/__front_door_missing_probe__"
+          )"
+          if [[ "$missing_status" != "404" ]]; then
+            echo "Expected missing-route status 404; got $missing_status" >&2
+            exit 1
+          fi
+
+          {
+            echo
+            echo "### Public production smoke validation"
+            echo
+            echo "- Root: 200"
+            echo "- Games route with query: 200"
+            echo "- Asset: $asset_path"
+            echo "- X-Robots-Tag: noindex, nofollow"
+            echo "- Missing route: 404"
+          } >> "$GITHUB_STEP_SUMMARY"
