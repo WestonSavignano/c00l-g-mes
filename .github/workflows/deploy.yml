@@ -118,10 +118,10 @@ jobs:
           root_headers="$(mktemp)"
           root_body="$(mktemp)"
 
-          request / -sS -D "$root_headers" -o "$root_body" --fail
+          request / -s -D "$root_headers" -o "$root_body" --fail
           grep -Eiq '^x-robots-tag:[[:space:]]*noindex,[[:space:]]*nofollow' "$root_headers"
 
-          request /games -sS -o /dev/null --fail
+          request /games -s -o /dev/null --fail
 
           asset_path="$(
             node - "$root_body" <<'NODE'
@@ -132,10 +132,10 @@ jobs:
           process.stdout.write(match[1])
           NODE
           )"
-          request "$asset_path" -sS -o /dev/null --fail
+          request "$asset_path" -s -o /dev/null --fail
 
           missing_status="$(
-            request /__front_door_missing_probe__ -sS -o /dev/null -w '%{http_code}'
+            request /__front_door_missing_probe__ -s -o /dev/null -w '%{http_code}'
           )"
           if [[ "$missing_status" != "404" ]]; then
             echo "Expected missing-route status 404; got $missing_status" >&2
