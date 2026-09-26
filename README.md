@@ -55,7 +55,7 @@ The workflow:
 4. maps `VERCEL_TEAM_ID` to the Vercel CLI's expected `VERCEL_ORG_ID` internally;
 5. deploys the rendered configuration to the existing Vercel project using a pinned Vercel CLI.
 
-The legacy Vercel project can therefore be reused without making Vercel the source of upstream configuration. Automatic Vercel Git deployment is not required for this repository.
+The legacy Vercel project can therefore be reused without making Vercel the source of upstream configuration. The generated Vercel config also selects the `Other` framework preset and disables build/install commands so legacy Vite build settings on the reused project do not leak into this front-door deployment. Automatic Vercel Git deployment is not required for this repository.
 
 ## Validation
 
