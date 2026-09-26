@@ -1,0 +1,80 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_ORIGIN: ${{ vars.UPSTREAM_ORIGIN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Render Vercel routing config
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs')
+
+          const required = ['UPSTREAM_ORIGIN', 'VERCEL_ORG_ID', 'VERCEL_PROJECT_ID']
+          for (const name of required) {
+            if (!process.env[name]) {
+              throw new Error(`Missing required GitHub repository variable: ${name}`)
+            }
+          }
+
+          const upstream = new URL(process.env.UPSTREAM_ORIGIN)
+          if (upstream.protocol !== 'https:') {
+            throw new Error('UPSTREAM_ORIGIN must use https')
+          }
+          if (
+            upstream.username ||
+            upstream.password ||
+            upstream.pathname !== '/' ||
+            upstream.search ||
+            upstream.hash
+          ) {
+            throw new Error('UPSTREAM_ORIGIN must be an origin only, e.g. https://example.com')
+          }
+
+          const template = fs.readFileSync('vercel.template.json', 'utf8')
+          const marker = '__UPSTREAM_ORIGIN__'
+          const matches = template.split(marker).length - 1
+          if (matches !== 1) {
+            throw new Error(`Expected exactly one ${marker} marker; found ${matches}`)
+          }
+
+          fs.writeFileSync('vercel.json', template.replace(marker, upstream.origin))
+          NODE
+
+      - name: Deploy production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${VERCEL_TOKEN:-}" ]]; then
+            echo "Missing required GitHub Actions secret: VERCEL_TOKEN" >&2
+            exit 1
+          fi
+
+          npx --yes vercel@59.19.1 deploy \
+            --prod \
+            --yes \
+            --token="$VERCEL_TOKEN"
