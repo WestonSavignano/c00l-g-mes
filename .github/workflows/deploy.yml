@@ -4,21 +4,29 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: vercel-production
+  group: vercel-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   deploy:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     env:
       UPSTREAM_ORIGIN: ${{ vars.UPSTREAM_ORIGIN }}
-      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_TEAM_ID }}
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
 
     steps:
@@ -35,7 +43,7 @@ jobs:
           const required = ['UPSTREAM_ORIGIN', 'VERCEL_ORG_ID', 'VERCEL_PROJECT_ID']
           for (const name of required) {
             if (!process.env[name]) {
-              throw new Error(`Missing required GitHub repository variable: ${name}`)
+              throw new Error(`Missing required GitHub repository configuration for ${name}`)
             }
           }
 
@@ -61,9 +69,10 @@ jobs:
           }
 
           fs.writeFileSync('vercel.json', template.replace(marker, upstream.origin))
+          JSON.parse(fs.readFileSync('vercel.json', 'utf8'))
           NODE
 
-      - name: Deploy production
+      - name: Deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         shell: bash
@@ -74,7 +83,15 @@ jobs:
             exit 1
           fi
 
-          npx --yes vercel@59.19.1 deploy \
-            --prod \
-            --yes \
-            --token="$VERCEL_TOKEN"
+          args=(deploy --yes --token="$VERCEL_TOKEN")
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            args+=(--prod)
+          fi
+
+          deployment_url="$(npx --yes vercel@59.19.1 "${args[@]}")"
+          {
+            echo "## Vercel deployment"
+            echo
+            echo "- Event: `$GITHUB_EVENT_NAME`"
+            echo "- URL: $deployment_url"
+          } >> "$GITHUB_STEP_SUMMARY"
